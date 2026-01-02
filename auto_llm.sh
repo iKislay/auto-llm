@@ -357,7 +357,8 @@ show_startup_banner() {
     ╚═══════════════════════════════════════════════════════════════╝
 EOF
         echo -e "${C_RESET}" >&2
-        echo -e "${C_DIM}    Your AI teammate that works while you sleep${C_RESET}" >&2
+        echo -e "${C_DIM}    Version $VERSION • Built by Kumar Kislay${C_RESET}" >&2
+        echo -e "${C_DIM}    🐦 @whykislay  •  💼 linkedin.com/in/kislayy  •  🐙 github.com/iKislay${C_RESET}" >&2
     else
         cat << 'EOF' >&2
     ╔═══════════════════════════════════════════════════════════════╗
@@ -378,7 +379,8 @@ EOF
     ╚═══════════════════════════════════════════════════════════════╝
 EOF
         echo -e "${C_RESET}" >&2
-        echo -e "${C_DIM}    Your AI teammate powered by Gemini${C_RESET}" >&2
+        echo -e "${C_DIM}    Version $VERSION • Built by Kumar Kislay${C_RESET}" >&2
+        echo -e "${C_DIM}    🐦 @whykislay  •  💼 linkedin.com/in/kislayy  •  🐙 github.com/iKislay${C_RESET}" >&2
     fi
     echo "" >&2
 }

@@ -6,12 +6,16 @@
 
 ## Features
 
-- 🔄 **Iterative Development Loop** - Branch → Run LLM → Commit → PR → CI → Merge → Repeat
-- 🤖 **Multi-Provider Support** - Works with both Claude CLI and Gemini CLI
-- 📝 **Persistent Context** - Maintains notes across iterations via `SHARED_TASK_NOTES.md`
-- ⏱️ **Flexible Limits** - Stop by iteration count, cost budget, or time duration
-- 🌿 **Worktree Support** - Run multiple instances in parallel
-- 🎨 **Beautiful UX** - Spinners, progress bars, color-coded output
+- 🚀 **Interactive Wizard** - Don't remember flags? Run `auto-llm` with no arguments to get a guided setup.
+- 🔄 **Iterative Development** - Continuous loop of Branch → Run LLM → Commit → PR → CI → Merge → Repeat.
+- 🤖 **Multi-Provider Support** - Works with both Claude and Gemini CLIs.
+- 📉 **Fallback Provider** - Automatically switch to a fallback (e.g., `gemini`) if your primary provider (`claude`) hits a rate limit.
+- 📝 **Persistent Context** - Maintains notes across iterations via `SHARED_TASK_NOTES.md`.
+- 💾 **Session Management** - Automatically saves your session and can resume from where you left off.
+- ⏱️ **Flexible Limits** - Stop by iteration count, cost budget, or time duration.
+- 🌿 **Worktree Support** - Run multiple instances in parallel on the same repository without conflict.
+- ✨ **Auto-Update** - The script can check for updates and install the latest version.
+- 🎨 **Beautiful UX** - Richly formatted output with spinners, progress bars, and color-coded logs.
 
 ## Installation
 
@@ -27,6 +31,17 @@ sudo mv auto-llm /usr/local/bin/
 
 ## Quick Start
 
+The easiest way to get started is to run the interactive wizard:
+
+```bash
+# Run without arguments to open the wizard
+auto-llm
+```
+
+The wizard will guide you through selecting a provider, setting limits, and writing your prompt.
+
+For direct CLI usage:
+
 ```bash
 # Run 5 iterations with Claude
 auto-llm --provider claude -p "Add unit tests for all functions" -m 5
@@ -34,36 +49,94 @@ auto-llm --provider claude -p "Add unit tests for all functions" -m 5
 # Run with Gemini and a cost limit
 auto-llm --provider gemini -p "Improve documentation" --max-cost 10.00
 
-# Run for a maximum of 2 hours
-auto-llm --provider claude -p "Refactor legacy code" --max-duration 2h
-
 # Set default provider via environment variable
 export LLM_PROVIDER=claude
 auto-llm -p "Fix all linter errors" -m 5
 ```
 
+## Interactive Wizard
+
+If you run `auto-llm` without any arguments, it will launch a step-by-step wizard to configure your session.
+
+It helps you:
+1.  **Choose a provider** (Claude or Gemini).
+2.  **Configure a fallback** provider in case of quota limits.
+3.  **Set limits** (iterations, cost, or duration).
+4.  **Configure Git settings** and auto-detect your repository.
+5.  **Write your prompt**.
+
+<img width="800" alt="Auto-LLM Interactive Wizard" src="https://github.com/iKislay/auto-llm/assets/1 Kislay/e1e69b59-54d1-41d3-9f44-d62e7a17730e">
+
+## Session Management
+
+`auto-llm` automatically saves the configuration and progress of your session in `.auto-llm/session.json`.
+
+- **Resuming a Session**: If a previous session is found, the wizard will ask if you want to resume it.
+- **State**: It tracks the provider, prompt, limits, and progress (iterations completed, cost spent).
+
+## Updating
+
+You can easily update the script to the latest version.
+
+```bash
+# Check for updates and install the latest version
+auto-llm update
+```
+
+The script also automatically checks for new versions when it starts. You can enable automatic updates with the `--auto-update` flag or disable checks entirely with `--disable-updates`.
+
+
 ## Usage
 
 ```
-auto-llm --provider <claude|gemini> -p "prompt" [options]
+auto-llm [options]
+auto-llm update
+
+COMMANDS:
+    update                        Check for and install the latest version of the script.
+
+REQUIRED OPTIONS:
+    -p, --prompt <text>           The prompt/goal for the LLM to work on.
+    One of the following limits must be provided:
+    -m, --max-runs <number>       Maximum number of successful iterations.
+    --max-cost <dollars>          Maximum cost in USD to spend.
+    --max-duration <duration>     Maximum duration to run (e.g., "2h", "30m").
 
 PROVIDER OPTIONS:
-    --provider <claude|gemini>    LLM provider to use (or set LLM_PROVIDER env var)
+    --provider <claude|gemini>    LLM provider to use. Can also be set via the LLM_PROVIDER environment variable.
+    --fallback <claude|gemini>    A secondary provider to use if the primary one hits a quota limit.
 
-REQUIRED:
-    -p, --prompt <text>           The prompt/goal for the LLM
-    -m, --max-runs <number>       Maximum iterations (use 0 for unlimited)
-    --max-cost <dollars>          Stop when cost reaches this amount
-    --max-duration <duration>     Stop after duration (e.g., "2h", "30m")
+GIT & REPOSITORY OPTIONS:
+    --owner <owner>               GitHub repository owner (auto-detected from git remote).
+    --repo <repo>                 GitHub repository name (auto-detected from git remote).
+    --disable-commits             Disable automatic commits and PR creation. Useful for local testing.
+    --git-branch-prefix <prefix>  Prefix for branches created during iterations (default: "auto-<provider>/").
+    --merge-strategy <strategy>   PR merge strategy: squash, merge, or rebase (default: "squash").
 
-OPTIONS:
-    --owner <owner>               GitHub repository owner
-    --repo <repo>                 GitHub repository name
-    --disable-commits             Run without creating PRs
-    --dry-run                     Simulate execution
-    --worktree <name>             Run in a git worktree
-    --quiet                       Minimal output
-    --no-banner                   Skip ASCII banner
+WORKTREE OPTIONS:
+    --worktree <name>             Run in a git worktree for parallel execution. The worktree is created if it doesn't exist.
+    --worktree-base-dir <path>    Base directory where worktrees are created (default: "../auto-llm-worktrees").
+    --cleanup-worktree            Automatically remove the worktree after the session completes.
+    --list-worktrees              List all active git worktrees and exit.
+
+SESSION & AUTOMATION OPTIONS:
+    --notes-file <file>           Path to the shared notes file for iteration context (default: "SHARED_TASK_NOTES.md").
+    --completion-signal <phrase>  A specific phrase the AI can output to signal that the entire project is complete.
+    --completion-threshold <num>  The number of consecutive completion signals required to automatically stop the script (default: 3).
+
+UPDATE OPTIONS:
+    --auto-update                 Automatically install updates when available without prompting.
+    --disable-updates             Skip all update checks.
+
+DISPLAY OPTIONS:
+    --quiet                       Minimal output, showing only errors and the final summary.
+    --no-banner                   Skip the startup ASCII banner.
+    --no-color                    Disable all colored output.
+
+OTHER OPTIONS:
+    -h, --help                    Show this help message.
+    -v, --version                 Show version information.
+    --dry-run                     Simulate execution without running the LLM or making any changes.
 ```
 
 ## Requirements

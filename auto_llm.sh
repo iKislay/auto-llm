@@ -1626,7 +1626,15 @@ create_iteration_branch() {
         random_hash=${random_hash:0:8}
     fi
 
-    local branch_name="${GIT_BRANCH_PREFIX}iteration-${iteration_num}/${date_str}-${random_hash}"
+    # Create meaningful branch name from prompt (sanitized)
+    local slug=""
+    if [ -n "$PROMPT" ]; then
+        # Take first 30 chars of prompt, lowercase, replace spaces/special chars with dashes
+        slug=$(echo "$PROMPT" | head -c 30 | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+    fi
+    slug="${slug:-task}"
+    
+    local branch_name="${GIT_BRANCH_PREFIX}${slug}/${date_str}-${random_hash}"
 
     echo "🌿 $iteration_display Creating branch: $branch_name" >&2
 

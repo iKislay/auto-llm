@@ -12,6 +12,7 @@
 - 📉 **Fallback Provider** - Automatically switch to a fallback (e.g., `gemini`) if your primary provider (`claude`) hits a rate limit.
 - 📝 **Persistent Context** - Maintains notes across iterations via `SHARED_TASK_NOTES.md`.
 - 💾 **Session Management** - Automatically saves your session and can resume from where you left off.
+- 💾 **Checkpoint & Resume** - Save state after each iteration and resume from exact point after crashes or manual stops.
 - ⏱️ **Flexible Limits** - Stop by iteration count, cost budget, or time duration.
 - 🌿 **Worktree Support** - Run multiple instances in parallel on the same repository without conflict.
 - ✨ **Auto-Update** - The script can check for updates and install the latest version.
@@ -74,6 +75,44 @@ It helps you:
 - **Resuming a Session**: If a previous session is found, the wizard will ask if you want to resume it.
 - **State**: It tracks the provider, prompt, limits, and progress (iterations completed, cost spent).
 
+## Checkpoint & Resume
+
+For long-running tasks, `auto-llm` supports checkpointing to save state after each iteration and resume from the exact point after crashes or manual stops.
+
+### Saving Checkpoints
+
+Use the `--checkpoint-file` flag to save state after each iteration:
+
+```bash
+# Run with checkpoint saving
+auto-llm --provider claude -p "Large refactor" -m 50 --checkpoint-file .auto-checkpoint.json
+```
+
+After each iteration, the checkpoint file will be updated with:
+- Current iteration number
+- Successful iterations count
+- Total cost spent
+- Error count and completion signal count
+- Last branch name
+- All configuration settings
+
+### Resuming from Checkpoint
+
+If your session is interrupted (crash, manual stop, or system shutdown), resume exactly where you left off:
+
+```bash
+# Resume from checkpoint
+auto-llm --resume .auto-checkpoint.json
+```
+
+The resume command will:
+- Load all settings from the checkpoint
+- Continue from the next iteration
+- Preserve all progress counters
+- Use the same configuration
+
+**Note**: When resuming, you don't need to specify any other flags - everything is loaded from the checkpoint. If you want to continue saving checkpoints, the same file will be used automatically.
+
 ## Updating
 
 You can easily update the script to the latest version.
@@ -121,6 +160,8 @@ WORKTREE OPTIONS:
 
 SESSION & AUTOMATION OPTIONS:
     --notes-file <file>           Path to the shared notes file for iteration context (default: "SHARED_TASK_NOTES.md").
+    --checkpoint-file <file>      Save state after each iteration to enable resuming (e.g., ".auto-checkpoint.json").
+    --resume <file>               Resume from a saved checkpoint file.
     --completion-signal <phrase>  A specific phrase the AI can output to signal that the entire project is complete.
     --completion-threshold <num>  The number of consecutive completion signals required to automatically stop the script (default: 3).
 

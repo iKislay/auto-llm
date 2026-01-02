@@ -17,6 +17,8 @@ ADDITIONAL_FLAGS=""
 NOTES_FILE="SHARED_TASK_NOTES.md"
 AUTO_UPDATE=false
 DISABLE_UPDATES=false
+CHECKPOINT_FILE=""
+RESUME_FROM=""
 
 PROMPT_JQ_INSTALL="Please install jq for JSON parsing"
 
@@ -221,30 +223,122 @@ load_session() {
     if [ -z "$SESSION_FILE" ]; then
         init_session_path
     fi
-    
+
     if [ ! -f "$SESSION_FILE" ]; then
         return 1
     fi
-    
+
     if ! jq -e . "$SESSION_FILE" >/dev/null 2>&1; then
         return 1
     fi
-    
+
     local loaded_provider=$(jq -r '.provider // empty' "$SESSION_FILE")
     local loaded_fallback=$(jq -r '.fallback_provider // empty' "$SESSION_FILE")
     local loaded_prompt=$(jq -r '.prompt // empty' "$SESSION_FILE")
     local loaded_max_runs=$(jq -r '.max_runs // empty' "$SESSION_FILE")
     local loaded_iterations=$(jq -r '.successful_iterations // 0' "$SESSION_FILE")
     local loaded_i=$(jq -r '.iteration // 1' "$SESSION_FILE")
-    
+
     [ -n "$loaded_provider" ] && [ "$loaded_provider" != "null" ] && PROVIDER="$loaded_provider"
     [ -n "$loaded_fallback" ] && [ "$loaded_fallback" != "null" ] && FALLBACK_PROVIDER="$loaded_fallback"
     [ -n "$loaded_prompt" ] && [ "$loaded_prompt" != "null" ] && PROMPT="$loaded_prompt"
     [ -n "$loaded_max_runs" ] && [ "$loaded_max_runs" != "null" ] && MAX_RUNS="$loaded_max_runs"
     [ -n "$loaded_iterations" ] && [ "$loaded_iterations" != "null" ] && successful_iterations="$loaded_iterations"
     [ -n "$loaded_i" ] && [ "$loaded_i" != "null" ] && i="$loaded_i"
-    
+
     return 0
+}
+
+save_checkpoint() {
+    if [ -z "$CHECKPOINT_FILE" ]; then
+        return 0
+    fi
+
+    local checkpoint_data=$(cat << EOF
+{
+    "provider": "$PROVIDER",
+    "fallback_provider": "$FALLBACK_PROVIDER",
+    "prompt": $(echo "$PROMPT" | jq -Rs .),
+    "max_runs": ${MAX_RUNS:-null},
+    "max_cost": ${MAX_COST:-null},
+    "max_duration": ${MAX_DURATION:-null},
+    "enable_commits": $ENABLE_COMMITS,
+    "github_owner": "$GITHUB_OWNER",
+    "github_repo": "$GITHUB_REPO",
+    "git_branch_prefix": "$GIT_BRANCH_PREFIX",
+    "merge_strategy": "$MERGE_STRATEGY",
+    "notes_file": "$NOTES_FILE",
+    "worktree_name": "$WORKTREE_NAME",
+    "worktree_base_dir": "$WORKTREE_BASE_DIR",
+    "successful_iterations": $successful_iterations,
+    "total_cost": $total_cost,
+    "error_count": $error_count,
+    "completion_signal_count": $completion_signal_count,
+    "iteration": $i,
+    "start_time": ${start_time:-null},
+    "last_branch": "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')",
+    "last_updated": "$(date -Iseconds)",
+    "checkpoint_version": "1.0"
+}
+EOF
+)
+    echo "$checkpoint_data" > "$CHECKPOINT_FILE"
+
+    if [ "$QUIET_MODE" = "false" ]; then
+        echo "${C_DIM}💾 Checkpoint saved to $CHECKPOINT_FILE${C_RESET}" >&2
+    fi
+}
+
+load_checkpoint() {
+    local checkpoint_file="$1"
+
+    if [ ! -f "$checkpoint_file" ]; then
+        echo "${C_RED}Error: Checkpoint file not found: $checkpoint_file${C_RESET}" >&2
+        exit 1
+    fi
+
+    if ! jq -e . "$checkpoint_file" >/dev/null 2>&1; then
+        echo "${C_RED}Error: Invalid checkpoint file format${C_RESET}" >&2
+        exit 1
+    fi
+
+    PROVIDER=$(jq -r '.provider // empty' "$checkpoint_file")
+    FALLBACK_PROVIDER=$(jq -r '.fallback_provider // empty' "$checkpoint_file")
+    PROMPT=$(jq -r '.prompt // empty' "$checkpoint_file")
+    MAX_RUNS=$(jq -r '.max_runs // empty' "$checkpoint_file")
+    MAX_COST=$(jq -r '.max_cost // empty' "$checkpoint_file")
+    MAX_DURATION=$(jq -r '.max_duration // empty' "$checkpoint_file")
+    ENABLE_COMMITS=$(jq -r '.enable_commits // true' "$checkpoint_file")
+    GITHUB_OWNER=$(jq -r '.github_owner // empty' "$checkpoint_file")
+    GITHUB_REPO=$(jq -r '.github_repo // empty' "$checkpoint_file")
+    GIT_BRANCH_PREFIX=$(jq -r '.git_branch_prefix // empty' "$checkpoint_file")
+    MERGE_STRATEGY=$(jq -r '.merge_strategy // "squash"' "$checkpoint_file")
+    NOTES_FILE=$(jq -r '.notes_file // "SHARED_TASK_NOTES.md"' "$checkpoint_file")
+    WORKTREE_NAME=$(jq -r '.worktree_name // empty' "$checkpoint_file")
+    WORKTREE_BASE_DIR=$(jq -r '.worktree_base_dir // empty' "$checkpoint_file")
+    successful_iterations=$(jq -r '.successful_iterations // 0' "$checkpoint_file")
+    total_cost=$(jq -r '.total_cost // 0' "$checkpoint_file")
+    error_count=$(jq -r '.error_count // 0' "$checkpoint_file")
+    completion_signal_count=$(jq -r '.completion_signal_count // 0' "$checkpoint_file")
+    i=$(jq -r '.iteration // 1' "$checkpoint_file")
+    start_time=$(jq -r '.start_time // empty' "$checkpoint_file")
+
+    local last_branch=$(jq -r '.last_branch // empty' "$checkpoint_file")
+    local last_updated=$(jq -r '.last_updated // empty' "$checkpoint_file")
+
+    [ "$PROVIDER" = "null" ] || [ -z "$PROVIDER" ] && PROVIDER=""
+    [ "$FALLBACK_PROVIDER" = "null" ] && FALLBACK_PROVIDER=""
+    [ "$MAX_RUNS" = "null" ] && MAX_RUNS=""
+    [ "$MAX_COST" = "null" ] && MAX_COST=""
+    [ "$MAX_DURATION" = "null" ] && MAX_DURATION=""
+    [ "$start_time" = "null" ] && start_time=""
+
+    echo "${C_GREEN}✓ Checkpoint loaded from $checkpoint_file${C_RESET}" >&2
+    echo "${C_DIM}  Last updated: $last_updated${C_RESET}" >&2
+    echo "${C_DIM}  Resuming from iteration: $i${C_RESET}" >&2
+    echo "${C_DIM}  Successful iterations so far: $successful_iterations${C_RESET}" >&2
+    [ -n "$last_branch" ] && echo "${C_DIM}  Last branch: $last_branch${C_RESET}" >&2
+    echo "" >&2
 }
 
 show_welcome_banner() {
@@ -653,6 +747,9 @@ show_config_summary() {
     # Worktree
     [ -n "$WORKTREE_NAME" ] && echo -e "  ${C_BRAND}🌿 Worktree:${C_RESET} $WORKTREE_NAME" >&2
 
+    # Checkpoint
+    [ -n "$CHECKPOINT_FILE" ] && echo -e "  ${C_BRAND}💾 Checkpoint:${C_RESET} $CHECKPOINT_FILE" >&2
+
     # Completion settings
     echo -e "  ${C_BRAND}🎉 Auto-stop:${C_RESET} After $COMPLETION_THRESHOLD completion signals" >&2
 
@@ -797,6 +894,8 @@ OPTIONAL FLAGS:
     --dry-run                     Simulate execution without making changes
     --completion-signal <phrase>  Phrase that agents output when project is complete
     --completion-threshold <num>  Number of consecutive signals to stop early (default: 3)
+    --checkpoint-file <file>      Save state after each iteration to enable resuming (e.g., ".auto-llm-checkpoint.json")
+    --resume <file>               Resume from a saved checkpoint file
 
 DISPLAY OPTIONS:
     --quiet                       Minimal output, only errors and final summary
@@ -822,6 +921,12 @@ EXAMPLES:
     # Use environment variable for provider
     export LLM_PROVIDER=claude
     auto-llm -p "Fix bugs" -m 5
+
+    # Run with checkpoint saving (for long-running tasks)
+    auto-llm --provider claude -p "Large refactor" -m 50 --checkpoint-file .auto-checkpoint.json
+
+    # Resume from a checkpoint after crash or manual stop
+    auto-llm --resume .auto-checkpoint.json
 
 REQUIREMENTS:
     - Claude Code CLI (if using --provider claude): https://claude.ai/code
@@ -1192,6 +1297,14 @@ parse_arguments() {
                 ;;
             --completion-threshold)
                 COMPLETION_THRESHOLD="$2"
+                shift 2
+                ;;
+            --checkpoint-file)
+                CHECKPOINT_FILE="$2"
+                shift 2
+                ;;
+            --resume)
+                RESUME_FROM="$2"
                 shift 2
                 ;;
             --quiet)
@@ -2229,6 +2342,9 @@ main_loop() {
 
         execute_single_iteration $i
 
+        # Save checkpoint after each iteration
+        save_checkpoint
+
         sleep 1
         i=$((i + 1))
     done
@@ -2294,6 +2410,17 @@ main() {
 
     parse_arguments "$@"
 
+    # Handle --resume flag (loads checkpoint and overrides other args)
+    if [ -n "$RESUME_FROM" ]; then
+        # Need to init colors early for checkpoint loading messages
+        init_provider
+        init_colors
+        load_checkpoint "$RESUME_FROM"
+        # Set checkpoint file to continue saving to same location
+        [ -z "$CHECKPOINT_FILE" ] && CHECKPOINT_FILE="$RESUME_FROM"
+        init_provider  # Re-initialize with loaded provider
+    fi
+
     # Initialize provider (from flag or environment)
     init_provider
 
@@ -2306,7 +2433,8 @@ main() {
     init_colors
 
     # Skip validation if came from wizard (already validated)
-    if [ "$INTERACTIVE_MODE" != "true" ]; then
+    # Also skip if resuming from checkpoint (already validated)
+    if [ "$INTERACTIVE_MODE" != "true" ] && [ -z "$RESUME_FROM" ]; then
         validate_arguments
     fi
     validate_requirements

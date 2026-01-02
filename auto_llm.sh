@@ -11,7 +11,8 @@ PROVIDER_BRAND_COLOR=""
 PROVIDER_BRAND_COLOR_LIGHT=""
 PROVIDER_REPO=""
 
-ADDITIONAL_FLAGS="--dangerously-skip-permissions --output-format json"
+# Provider-specific flags (set by init_provider)
+ADDITIONAL_FLAGS=""
 
 NOTES_FILE="SHARED_TASK_NOTES.md"
 AUTO_UPDATE=false
@@ -116,6 +117,7 @@ init_provider() {
             GIT_BRANCH_PREFIX="${GIT_BRANCH_PREFIX:-auto-claude/}"
             WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-../auto-llm-worktrees}"
             COMPLETION_SIGNAL="${COMPLETION_SIGNAL:-AUTO_CLAUDE_PROJECT_COMPLETE}"
+            ADDITIONAL_FLAGS="--dangerously-skip-permissions --output-format json"
             ;;
         gemini)
             PROVIDER_CLI="gemini"
@@ -125,6 +127,7 @@ init_provider() {
             GIT_BRANCH_PREFIX="${GIT_BRANCH_PREFIX:-auto-gemini/}"
             WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-../auto-llm-worktrees}"
             COMPLETION_SIGNAL="${COMPLETION_SIGNAL:-AUTO_GEMINI_PROJECT_COMPLETE}"
+            ADDITIONAL_FLAGS="--yolo --output-format json"
             ;;
         "")
             # Provider not set - will be handled by interactive prompt or validation
@@ -176,6 +179,233 @@ select_provider_interactive() {
     echo "" >&2
 
     init_provider
+}
+
+# Session management
+SESSION_DIR=".auto-llm"
+SESSION_FILE=""
+INTERACTIVE_MODE=false
+
+init_session_path() {
+    mkdir -p "$SESSION_DIR"
+    SESSION_FILE="$SESSION_DIR/session.json"
+}
+
+save_session() {
+    if [ -z "$SESSION_FILE" ]; then
+        init_session_path
+    fi
+    
+    local session_data=$(cat << EOF
+{
+    "provider": "$PROVIDER",
+    "fallback_provider": "$FALLBACK_PROVIDER",
+    "prompt": $(echo "$PROMPT" | jq -Rs .),
+    "max_runs": ${MAX_RUNS:-null},
+    "max_cost": ${MAX_COST:-null},
+    "max_duration": ${MAX_DURATION:-null},
+    "enable_commits": $ENABLE_COMMITS,
+    "github_owner": "$GITHUB_OWNER",
+    "github_repo": "$GITHUB_REPO",
+    "successful_iterations": $successful_iterations,
+    "total_cost": $total_cost,
+    "iteration": $i,
+    "last_updated": "$(date -Iseconds)"
+}
+EOF
+)
+    echo "$session_data" > "$SESSION_FILE"
+}
+
+load_session() {
+    if [ -z "$SESSION_FILE" ]; then
+        init_session_path
+    fi
+    
+    if [ ! -f "$SESSION_FILE" ]; then
+        return 1
+    fi
+    
+    if ! jq -e . "$SESSION_FILE" >/dev/null 2>&1; then
+        return 1
+    fi
+    
+    local loaded_provider=$(jq -r '.provider // empty' "$SESSION_FILE")
+    local loaded_fallback=$(jq -r '.fallback_provider // empty' "$SESSION_FILE")
+    local loaded_prompt=$(jq -r '.prompt // empty' "$SESSION_FILE")
+    local loaded_max_runs=$(jq -r '.max_runs // empty' "$SESSION_FILE")
+    local loaded_iterations=$(jq -r '.successful_iterations // 0' "$SESSION_FILE")
+    local loaded_i=$(jq -r '.iteration // 1' "$SESSION_FILE")
+    
+    [ -n "$loaded_provider" ] && [ "$loaded_provider" != "null" ] && PROVIDER="$loaded_provider"
+    [ -n "$loaded_fallback" ] && [ "$loaded_fallback" != "null" ] && FALLBACK_PROVIDER="$loaded_fallback"
+    [ -n "$loaded_prompt" ] && [ "$loaded_prompt" != "null" ] && PROMPT="$loaded_prompt"
+    [ -n "$loaded_max_runs" ] && [ "$loaded_max_runs" != "null" ] && MAX_RUNS="$loaded_max_runs"
+    [ -n "$loaded_iterations" ] && [ "$loaded_iterations" != "null" ] && successful_iterations="$loaded_iterations"
+    [ -n "$loaded_i" ] && [ "$loaded_i" != "null" ] && i="$loaded_i"
+    
+    return 0
+}
+
+show_welcome_banner() {
+    clear >&2
+    echo "" >&2
+    local C_ORANGE='\033[38;5;208m'
+    local C_BLUE='\033[38;5;33m'
+    local C_DIM_TXT='\033[2m'
+    local C_RESET_TXT='\033[0m'
+    
+    echo -e "${C_ORANGE}    ╔═══════════════════════════════════════════════════════════════╗" >&2
+    echo -e "    ║                                                               ║" >&2
+    echo -e "    ║       █████╗ ██╗   ██╗████████╗ ██████╗                       ║" >&2
+    echo -e "    ║      ██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗                      ║" >&2
+    echo -e "    ║      ███████║██║   ██║   ██║   ██║   ██║                      ║" >&2
+    echo -e "    ║      ██╔══██║██║   ██║   ██║   ██║   ██║                      ║" >&2
+    echo -e "    ║      ██║  ██║╚██████╔╝   ██║   ╚██████╔╝                      ║${C_RESET_TXT}" >&2
+    echo -e "${C_BLUE}    ║      ╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝                       ║" >&2
+    echo -e "    ║                                                               ║" >&2
+    echo -e "    ║        ██╗     ██╗     ███╗   ███╗                            ║" >&2
+    echo -e "    ║        ██║     ██║     ████╗ ████║                            ║" >&2
+    echo -e "    ║        ██║     ██║     ██╔████╔██║                            ║" >&2
+    echo -e "    ║        ██║     ██║     ██║╚██╔╝██║                            ║" >&2
+    echo -e "    ║        ███████╗███████╗██║ ╚═╝ ██║                            ║" >&2
+    echo -e "    ║        ╚══════╝╚══════╝╚═╝     ╚═╝                            ║" >&2
+    echo -e "    ║                                                               ║" >&2
+    echo -e "    ╚═══════════════════════════════════════════════════════════════╝${C_RESET_TXT}" >&2
+    echo "" >&2
+    echo -e "    ${C_DIM_TXT}Version $VERSION • Built by Kumar Kislay${C_RESET_TXT}" >&2
+    echo -e "    ${C_DIM_TXT}🐦 @whykislay  •  💼 linkedin.com/in/kislayy  •  🐙 github.com/iKislay${C_RESET_TXT}" >&2
+    echo "" >&2
+}
+
+run_interactive_wizard() {
+    INTERACTIVE_MODE=true
+    init_session_path
+    show_welcome_banner
+    
+    # Check for existing session
+    if [ -f "$SESSION_FILE" ]; then
+        echo -e "\033[1m📁 Previous session found\033[0m" >&2
+        echo "" >&2
+        local prev_prompt=$(jq -r '.prompt // "N/A"' "$SESSION_FILE" | head -c 50)
+        local prev_provider=$(jq -r '.provider // "N/A"' "$SESSION_FILE")
+        local prev_iterations=$(jq -r '.successful_iterations // 0' "$SESSION_FILE")
+        echo -e "  Provider: \033[36m$prev_provider\033[0m" >&2
+        echo -e "  Prompt: \033[33m${prev_prompt}...\033[0m" >&2
+        echo -e "  Progress: \033[32m$prev_iterations\033[0m iterations" >&2
+        echo "" >&2
+        echo -e "  \033[1m1)\033[0m Resume this session" >&2
+        echo -e "  \033[1m2)\033[0m Start a new session" >&2
+        echo "" >&2
+        echo -n "  Choice [1]: " >&2
+        
+        local resume_choice
+        read -r resume_choice
+        
+        if [ "$resume_choice" != "2" ]; then
+            load_session
+            init_provider
+            echo -e "\n  \033[32m✓\033[0m Resuming session...\n" >&2
+            return 0
+        fi
+        echo "" >&2
+    fi
+    
+    # Step 1: Provider
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo -e "\033[1m  Step 1/5: Choose your LLM provider\033[0m" >&2
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo "" >&2
+    echo -e "  \033[1m1)\033[0m \033[38;5;208m◉\033[0m Claude  \033[2m(claude CLI)\033[0m" >&2
+    echo -e "  \033[1m2)\033[0m \033[38;5;33m◉\033[0m Gemini  \033[2m(gemini CLI)\033[0m" >&2
+    echo "" >&2
+    echo -n "  Enter choice [1]: " >&2
+    
+    local provider_choice
+    read -r provider_choice
+    case "$provider_choice" in
+        2|gemini) PROVIDER="gemini" ;;
+        *) PROVIDER="claude" ;;
+    esac
+    init_provider
+    echo -e "  \033[32m✓\033[0m Selected: $PROVIDER\n" >&2
+    
+    # Step 2: Fallback
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo -e "\033[1m  Step 2/5: Configure fallback\033[0m" >&2
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo "" >&2
+    local other_provider="gemini"
+    [ "$PROVIDER" = "gemini" ] && other_provider="claude"
+    echo -e "  \033[1m1)\033[0m Enable fallback to \033[36m$other_provider\033[0m" >&2
+    echo -e "  \033[1m2)\033[0m No fallback" >&2
+    echo "" >&2
+    echo -n "  Enter choice [2]: " >&2
+    
+    local fallback_choice
+    read -r fallback_choice
+    if [ "$fallback_choice" = "1" ]; then
+        FALLBACK_PROVIDER="$other_provider"
+        echo -e "  \033[32m✓\033[0m Fallback: $FALLBACK_PROVIDER\n" >&2
+    else
+        echo -e "  \033[32m✓\033[0m No fallback\n" >&2
+    fi
+    
+    # Step 3: Limits
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo -e "\033[1m  Step 3/5: Set limits\033[0m" >&2
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo "" >&2
+    echo -n "  Max iterations [5]: " >&2
+    
+    local max_runs_input
+    read -r max_runs_input
+    MAX_RUNS="${max_runs_input:-5}"
+    echo -e "  \033[32m✓\033[0m Max iterations: $MAX_RUNS\n" >&2
+    
+    # Step 4: PR settings
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo -e "\033[1m  Step 4/5: Git & PR settings\033[0m" >&2
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo "" >&2
+    echo -e "  \033[1m1)\033[0m Enable commits & PRs" >&2
+    echo -e "  \033[1m2)\033[0m Disable commits (testing)" >&2
+    echo "" >&2
+    echo -n "  Enter choice [1]: " >&2
+    
+    local commit_choice
+    read -r commit_choice
+    if [ "$commit_choice" = "2" ]; then
+        ENABLE_COMMITS=false
+        echo -e "  \033[32m✓\033[0m Commits disabled\n" >&2
+    else
+        ENABLE_COMMITS=true
+        local detected_info
+        if detected_info=$(detect_github_repo 2>/dev/null); then
+            GITHUB_OWNER=$(echo "$detected_info" | awk '{print $1}')
+            GITHUB_REPO=$(echo "$detected_info" | awk '{print $2}')
+            echo -e "  \033[32m✓\033[0m Auto-detected: $GITHUB_OWNER/$GITHUB_REPO\n" >&2
+        else
+            echo -e "  \033[32m✓\033[0m Commits enabled\n" >&2
+        fi
+    fi
+    
+    # Step 5: Prompt
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo -e "\033[1m  Step 5/5: Enter your task prompt\033[0m" >&2
+    echo -e "\033[1m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m" >&2
+    echo "" >&2
+    echo -n "  > " >&2
+    
+    read -r PROMPT
+    
+    if [ -z "$PROMPT" ]; then
+        echo -e "\n  \033[31m❌ Prompt is required\033[0m" >&2
+        exit 1
+    fi
+    
+    echo -e "\n  \033[32m✓\033[0m Task configured!\n" >&2
+    save_session
 }
 
 init_colors() {
@@ -2059,15 +2289,18 @@ main() {
     # Initialize provider (from flag or environment)
     init_provider
 
-    # If still no provider, prompt interactively
-    if [ -z "$PROVIDER" ]; then
-        select_provider_interactive
+    # If no prompt provided, run interactive wizard
+    if [ -z "$PROMPT" ]; then
+        run_interactive_wizard
     fi
 
     # Initialize colors after parsing and provider init
     init_colors
 
-    validate_arguments
+    # Skip validation if came from wizard (already validated)
+    if [ "$INTERACTIVE_MODE" != "true" ]; then
+        validate_arguments
+    fi
     validate_requirements
 
     # Check for updates at startup
